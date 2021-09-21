@@ -20,6 +20,40 @@ const offset = 0
 
 const TOKEN_ID = '' // the token id for the burned token on H=N
 
+// this method is passed into the batching function to handle writing a record
+async function addRecords (records) {
+  console.log('adding...', records)
+  return new Promise((resolve, reject) => {
+    base('Breeding Table').create(records, function(err, records) {
+      if (err) reject(err)
+      if (records && records.length > 0) {
+        const r = [ ...records ]
+        r.forEach((record) =>{
+          const { BreederName, BreederTZ, BurnTxnID, BurnCounter } = record.fields
+          console.log(`New fish! : Breeder ${BreederName} ${BreederTZ} - Hash ${BurnTxnID} : ${BurnCounter}`)
+        })
+      }
+      resolve(records)
+    })
+  })
+}
+
+// airtable can't write more than 10 records at a time, this batches writing the data
+async function batchChangesInSets (arrData, func) {
+  if (arrData.length > 0) {
+    // break added up into sets of 10 & update
+    const addAll = [ ...arrData ]
+    while(addAll.length > 0) {
+      const toAdd = []
+      for(let i=0; i< ((addAll.length > 10) ? 10 : addAll.length); i++) {
+        toAdd.push(addAll.shift())
+      }
+      const results = await func(toAdd)
+      console.log('added', results)
+    }
+  }
+}
+
 function checkBurnContracts (burnHistory) {
   console.log('Checking burn contracts ', new Date().toDateString(), new Date().toTimeString())
   // needs to go back in time to the last stored query recorded
@@ -90,20 +124,12 @@ function checkBurnContracts (burnHistory) {
 
       // if there's data - write it to the correct table
       if (fieldData.length > 0) {
-        base('Breeding Table').create(fieldData, (err, records) => {
-          if (err) {
-            console.error(err);
-            return;
-          }
-          if (records && records.length > 0) {
-            const r = [ ...records ]
-            r.forEach((record) =>{
-              // if you want to do anything like display information on the created record - do it here
-              const { BreederName, BreederTZ, BurnTxnID, BurnCounter } = record.fields
-              console.log(`New fish! : Breeder ${BreederName} ${BreederTZ} - Hash ${BurnTxnID} : ${BurnCounter}`)
-            })
-          }
-        })
+        try {
+          console.log('batching')
+          await batchChangesInSets(fieldData, addRecords)
+        } catch(err) {
+          console.log('ERROR!', err)
+        }
       } else {
         console.log('No new records to add')
       }
